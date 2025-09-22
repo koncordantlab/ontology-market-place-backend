@@ -23,6 +23,8 @@ def initialize_firebase():
             os.getenv('GOOGLE_CLOUD_PROJECT')
             or os.getenv('GCP_PROJECT')
             or os.getenv('FIREBASE_PROJECT_ID')
+            or os.getenv('GOOGLE_PROJECT_ID')
+            or os.getenv('PROJECT_ID')
         )
 
         # Prefer explicit service account if provided
