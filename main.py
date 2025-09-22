@@ -76,15 +76,19 @@ async def add_ontologies_endpoint(
 
 
 @app.delete("/delete_ontologies", response_model=OntologyResponse)
-async def delete_ontologies_endpoint(email: str, ontology_ids: List[str]):
+async def delete_ontologies_endpoint(
+    ontology_ids: List[str],
+    current_user: dict = Depends(get_current_user)
+):
     """
     Delete ontologies by their IDs
 
     Args:
         email: String email of the owner/admin/editor of ontologies
-        ontology_ids: List of ontology UIDs to delete
+        ontology_ids: List of ontology uuids to delete
     """
     try:
+        email=current_user.get('email')
         return delete_ontologies(email, ontology_ids)
     except Exception as e:
         return OntologyResponse(
@@ -94,7 +98,11 @@ async def delete_ontologies_endpoint(email: str, ontology_ids: List[str]):
         )
 
 @app.put("/update_ontology/{ontology_id}", response_model=OntologyResponse)
-async def update_ontology_endpoint(email: str, ontology_id: str, ontology: UpdateOntology):
+async def update_ontology_endpoint(
+    ontology_id: str, 
+    ontology: UpdateOntology,
+    current_user: dict = Depends(get_current_user)
+):
     """
     Update an existing ontology
 
@@ -104,6 +112,7 @@ async def update_ontology_endpoint(email: str, ontology_id: str, ontology: Updat
         ontology: UpdateOntology object containing fields to update
     """
     try:
+        email=current_user.get('email')
         return update_ontology(email, ontology_id, ontology)
     except Exception as e:
         return OntologyResponse(
@@ -113,10 +122,15 @@ async def update_ontology_endpoint(email: str, ontology_id: str, ontology: Updat
         )
 
 @app.post("/like_ontology/{ontology_id}", response_model=OntologyResponse)
-async def like_ontology_endpoint(ontology_id: str):
+async def like_ontology_endpoint(
+    ontology_id: str,
+    current_user: dict = Depends(get_current_user)
+):
     """
     Like an ontology
     """
+    
+    email=current_user.get('email')
     
     # TODO: Implement like logic
     return OntologyResponse(

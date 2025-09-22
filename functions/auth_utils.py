@@ -4,15 +4,60 @@ import firebase_admin
 from firebase_admin import auth, credentials, exceptions
 from flask import Request, jsonify
 from typing import Tuple, Dict, Any, Optional, Union
+import os
+import logging
+
+# Module-level logger
+logger = logging.getLogger(__name__)
+
+# Track whether we've logged Firebase initialization details to avoid noise
+_firebase_init_logged = False
 
 def initialize_firebase():
     """Initialize the Firebase Admin SDK if not already initialized."""
     try:
         firebase_admin.get_app()
     except ValueError:
-        # Initialize with application default credentials
-        cred = credentials.ApplicationDefault()
-        firebase_admin.initialize_app(cred)
+        # Determine project ID from common environment variables
+        project_id = (
+            os.getenv('GOOGLE_CLOUD_PROJECT')
+            or os.getenv('GCP_PROJECT')
+            or os.getenv('FIREBASE_PROJECT_ID')
+        )
+
+        # Prefer explicit service account if provided
+        cred = None
+        sa_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+        try:
+            if sa_path and os.path.exists(sa_path):
+                cred = credentials.Certificate(sa_path)
+            else:
+                cred = credentials.ApplicationDefault()
+        except Exception:
+            cred = None
+
+        options = {'projectId': project_id} if project_id else None
+
+        if cred is not None:
+            firebase_admin.initialize_app(cred, options)
+        elif options is not None:
+            # Initialize with options only; Firebase Admin supports credential=None
+            firebase_admin.initialize_app(options=options)
+        else:
+            raise RuntimeError(
+                "Firebase project ID is required. Set GOOGLE_CLOUD_PROJECT, GCP_PROJECT, or "
+                "FIREBASE_PROJECT_ID, or provide GOOGLE_APPLICATION_CREDENTIALS to a service "
+                "account JSON."
+            )
+
+        global _firebase_init_logged
+        if not _firebase_init_logged:
+            emulator = os.getenv('FIREBASE_AUTH_EMULATOR_HOST')
+            logger.info(
+                "Initialized Firebase Admin SDK | project_id=%s | using_sa=%s | emulator=%s",
+                project_id or "<unset>", bool(sa_path and os.path.exists(sa_path)), emulator or "<none>"
+            )
+            _firebase_init_logged = True
 
 def verify_firebase_token(id_token: str) -> dict:
     """
@@ -31,8 +76,20 @@ def verify_firebase_token(id_token: str) -> dict:
         initialize_firebase()
         decoded_token = auth.verify_id_token(id_token)
         return decoded_token
+    except exceptions.ExpiredIdTokenError as e:
+        logger.warning("Firebase token expired: %s", str(e))
+        raise ValueError("Authentication failed: token has expired. Please sign in again.")
+    except exceptions.RevokedIdTokenError as e:
+        logger.warning("Firebase token revoked: %s", str(e))
+        raise ValueError("Authentication failed: token has been revoked. Please sign in again.")
+    except exceptions.InvalidIdTokenError as e:
+        logger.warning("Firebase invalid token: %s", str(e))
+        raise ValueError("Authentication failed: invalid ID token.")
     except (ValueError, exceptions.FirebaseError) as e:
-        raise ValueError(f"Invalid authentication token: {str(e)}")
+        # Provide concise, safe error message (do not echo token)
+        msg = getattr(e, 'message', None) or str(e)
+        logger.warning("Firebase token verification failed: %s", msg)
+        raise ValueError(f"Authentication failed: {msg}")
 
 def get_authenticated_email(request: Request) -> str:
     """
@@ -47,11 +104,23 @@ def get_authenticated_email(request: Request) -> str:
     Raises:
         ValueError: If authentication fails or email is not verified
     """
+    # Development bypass (useful for local testing of endpoints without Firebase)
+    if os.getenv('ALLOW_DEV_AUTH_BYPASS') == '1':
+        dev_email = request.headers.get('X-Dev-Email') or os.getenv('DEV_AUTH_EMAIL')
+        if dev_email:
+            logger.info("DEV AUTH BYPASS active, using email=%s", dev_email)
+            return str(dev_email)
+
     auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith('Bearer '):
-        raise ValueError('Authorization header is missing or invalid')
-    
-    id_token = auth_header.split(' ')[1]
+    if not auth_header:
+        raise ValueError('Authorization header is missing')
+
+    # Accept case-insensitive "Bearer" and extra spaces
+    parts = auth_header.split()
+    if len(parts) != 2 or parts[0].lower() != 'bearer':
+        raise ValueError('Authorization header must be in the format: Bearer <token>')
+
+    id_token = parts[1]
     decoded_token = verify_firebase_token(id_token)
     
     if not decoded_token.get('email_verified', False):
@@ -74,11 +143,15 @@ def get_auth_headers_and_email(request: Optional[Request] = None, email: Optiona
     # Set CORS response headers
     headers = {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Dev-Email',
         'Content-Type': 'application/json'
     }
-    
+
+    # Handle CORS preflight early
+    if request is not None and getattr(request, 'method', '').upper() == 'OPTIONS':
+        return {'success': True}, 204, headers
+
     # If email is already provided, return it with headers
     if email is not None:
         return headers, email

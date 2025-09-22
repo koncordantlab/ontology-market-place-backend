@@ -11,7 +11,7 @@ def update_ontology(email: str, ontology_id: str, update_data: UpdateOntology) -
     
     Args:
         email: String email of the owner or editor of ontologies
-        ontology_id: The UID of the ontology to update
+        ontology_id: The uuid of the ontology to update
         update_data: Dictionary containing fields to update
         
     Returns:
@@ -29,7 +29,7 @@ def update_ontology(email: str, ontology_id: str, update_data: UpdateOntology) -
         
         # First, check if the user is authorized to update this ontology
         auth_check_query = """
-            MATCH (o:Ontology {uid: $ontology_id})
+            MATCH (o:Ontology {uuid: $ontology_id})
             OPTIONAL MATCH (u:User {email: $email})
             WITH o, u, 
                 CASE WHEN u IS NULL THEN false 
@@ -89,8 +89,8 @@ def update_ontology(email: str, ontology_id: str, update_data: UpdateOntology) -
         
         # Only include fields that are present in update_data
         allowed_fields = {
-            'title': str,
-            'file_url': str,
+            'name': str,
+            'source_url': str,
             'description': str,
             'node_count': int,
             'relationship_count': int,
@@ -118,7 +118,7 @@ def update_ontology(email: str, ontology_id: str, update_data: UpdateOntology) -
         
         query = f"""
             MATCH (u:User {{email: $email}})
-            MATCH (o:Ontology {{uid: $ontology_id}})
+            MATCH (o:Ontology {{uuid: $ontology_id}})
             WITH u, o
             WHERE EXISTS((u)-[:CREATED|CAN_ADMIN|CAN_EDIT]->(o))
             SET {', '.join(set_clauses)}
@@ -140,19 +140,20 @@ def update_ontology(email: str, ontology_id: str, update_data: UpdateOntology) -
             )
         
         # Convert the Neo4j node to an Ontology object
-        created_time = result['o']['created_time']
-        if hasattr(created_time, 'to_native'):
-            created_time = created_time.to_native()  # Convert Neo4j DateTime to Python datetime
+        created_at = result['o']['created_at']
+        if hasattr(created_at, 'to_native'):
+            created_at = created_at.to_native()  # Convert Neo4j DateTime to Python datetime
 
         updated_ontology = Ontology(
-            uid=result['o']['uid'],
-            title=result['o']['title'],
-            file_url=result['o']['file_url'],
+            uuid=result['o']['uuid'],
+            name=result['o']['name'],
+            source_url=result['o']['source_url'],
             description=result['o'].get('description'),
             node_count=result['o'].get('node_count'),
             relationship_count=result['o'].get('relationship_count'),
             is_public=result['o'].get('is_public', False),
-            created_time=created_time
+            score=result['o'].get('score'),
+            created_at=created_at
         )
         
         return OntologyResponse(

@@ -9,30 +9,33 @@ class OntologyResponse(BaseModel):
     data: Optional[dict] = None
 
 class NewOntology(BaseModel):
-    title: str
-    file_url: str
+    name: str
+    source_url: str
     description: str | None = None
     node_count: int | None = None
+    score: float | None = None
     relationship_count: int | None = None
     is_public: bool = False
 
 class UpdateOntology(BaseModel):
-    title: str | None = None
-    file_url: str | None = None
+    name: str | None = None
+    source_url: str | None = None
     description: str | None = None
     node_count: int | None = None
+    score: float | None = None
     relationship_count: int | None = None
     is_public: bool | None = None
 
 class Ontology(BaseModel):
-    uid: str
-    title: str
-    file_url: str
+    uuid: str
+    name: str
+    source_url: str
     description: str | None = None
     node_count: int | None = None
+    score: float | None = None
     relationship_count: int | None = None
     is_public: bool = False
-    created_time: datetime
+    created_at: datetime
 
     @classmethod
     def from_new_ontology(cls, new_ontology: NewOntology) -> 'Ontology':
@@ -43,11 +46,11 @@ class Ontology(BaseModel):
             new_ontology: The NewOntology instance to convert
             
         Returns:
-            A new Ontology instance with auto-generated uid and created_time
+            A new Ontology instance with auto-generated uuid and created_at
         """
         return cls(
-            uid=str(uuid.uuid4()),
-            created_time=datetime.now(timezone.utc),
+            uuid=str(uuid.uuid4()),
+            created_at=datetime.now(timezone.utc),
             **new_ontology.model_dump()
         )
 

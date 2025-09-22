@@ -27,7 +27,7 @@ def add_cors_headers(response):
 
 def add_ontologies(
     ontology_data: list[dict],
-    created_time_override: datetime = None,
+    created_at_override: datetime = None,
     email: str = None,
     request: Optional[Request] = None,
 ) -> OntologyResponse:
@@ -36,7 +36,7 @@ def add_ontologies(
     
     Args:
         ontology_data: List of dictionaries containing ontology data
-        created_time_override: Optional datetime to use for all created_time fields.
+        created_at_override: Optional datetime to use for all created_at fields.
                               If None, current time will be used.
         email: String email of the owner of ontologies (deprecated, will be obtained from auth)
         request: Optional Flask request object for authentication
@@ -59,45 +59,49 @@ def add_ontologies(
         # Convert and validate input data
         ontologies = Ontology.from_new_ontologies(ontology_data)
         
-        # Apply created_time override if provided
-        current_time = created_time_override or datetime.now(timezone.utc)
+        # Apply created_at override if provided
+        current_time = created_at_override or datetime.now(timezone.utc)
         for onto in ontologies:
-            if created_time_override is not None:
-                onto.created_time = created_time_override
+            if created_at_override is not None:
+                onto.created_at = created_at_override
             else:
-                onto.created_time = current_time
+                onto.created_at = current_time
         
         
         # Prepare and execute the query
         query = """
             UNWIND $ontologies AS onto
-            // First check if an ontology with this file_url already exists
-            OPTIONAL MATCH (existing:Ontology {file_url: onto.file_url})
-            WITH onto, existing
-            // Only proceed if no existing ontology with this file_url was found
-            WHERE existing IS NULL
-            // Merge the User node
+            // First ensure the user exists, then check if an ontology with this source_url already exists for this user email
             MERGE (u:User {email: $email})
+            WITH onto, u
+            OPTIONAL MATCH (u)-[:CREATED]->(existing:Ontology {source_url: onto.source_url})
+            WITH onto, existing, u
+            // Only proceed if no existing ontology with this source_url was found for this user
+            WHERE existing IS NULL
             // Create the Ontology node and relationship
-            MERGE (o:Ontology {uid: onto.uid})
+            MERGE (o:Ontology {uuid: onto.uuid})
             ON CREATE SET 
-                o.title = onto.title,
-                o.file_url = onto.file_url,
+                o.name = onto.name,
+                o.source_url = onto.source_url,
                 o.description = onto.description,
                 o.node_count = onto.node_count,
                 o.relationship_count = onto.relationship_count,
                 o.is_public = onto.is_public,
-                o.created_time = datetime(onto.created_time)
+                o.created_at = datetime(onto.created_at)
             // Create the relationship if it doesn't exist
             MERGE (u)-[:CREATED]->(o)
-            RETURN o.uid as uid, o.title as title, u.email as owner_email
+            RETURN o.uuid as uuid, o.name as name, o.source_url as source_url, u.email as owner_email
         """
         
         # Convert ontologies to dict and serialize datetime
         onto_dicts = [onto.model_dump() for onto in ontologies]
         for onto in onto_dicts:
-            if 'created_time' in onto and onto['created_time']:
-                onto['created_time'] = onto['created_time'].isoformat()
+            if 'created_at' in onto and onto['created_at']:
+                onto['created_at'] = onto['created_at'].isoformat()
+            else:
+                # Should not occur
+                # If created_at missing, set to current UTC time in ISO format
+                onto['created_at'] = datetime.now(timezone.utc).isoformat()
         
         # Execute the query 
         try:
@@ -112,12 +116,19 @@ def add_ontologies(
         
                 print(f'Ontologies added: {result}')
                     
+                message = ''
+                if len(result) > 0:
+                    message = f'Successfully added {len(result)} ontologies.'
+                if len(result) < len(ontologies):
+                    # Have skipped ontologies
+                    message += f' Skipped {len(ontologies) - len(result)} ontologies that already existed.'
+
                 # Prepare success response
                 response_data = {
                     'success': True,
-                    'message': f'Successfully added {len(result)} ontologies. Skipped {len(ontologies) - len(result)} ontologies that already existed.',
+                    'message': message,
                     'data': {
-                        'created_ontologies': [{'uid': r['uid'], 'title': r['title']} for r in result]
+                        'created_ontologies': [{'uuid': r['uuid'], 'name': r['name'], 'source_url': r['source_url']} for r in result]
                             }
                         }
         

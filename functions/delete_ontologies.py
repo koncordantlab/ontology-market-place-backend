@@ -10,7 +10,7 @@ def delete_ontologies(email: str, ontology_ids: List[str]) -> OntologyResponse:
     
     Args:
         email: String email of the owner/admin/editor of ontologies
-        ontology_ids: List of ontology UIDs to delete
+        ontology_ids: List of ontology uuids to delete
         
     Returns:
         OntologyResponse with the result of the operation
@@ -28,7 +28,7 @@ def delete_ontologies(email: str, ontology_ids: List[str]) -> OntologyResponse:
         # Delete ontologies and their relationships
         query = """
             UNWIND $ontology_ids AS ontology_id
-            MATCH (o:Ontology {uid: ontology_id})
+            MATCH (o:Ontology {uuid: ontology_id})
             MATCH (u:User {email: $email})
             WHERE EXISTS((u)-[:CREATED|CAN_ADMIN|CAN_EDIT]->(o))
             WITH o, u

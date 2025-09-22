@@ -50,7 +50,7 @@ def search_ontologies(
                 AND (o.title CONTAINS $search_term 
                         OR o.description CONTAINS $search_term)
                 RETURN o
-                ORDER BY o.created_time DESC
+                ORDER BY o.created_at DESC
                 SKIP $offset
                 LIMIT $limit
                 """
@@ -66,7 +66,7 @@ def search_ontologies(
                 WHERE o.is_public = true 
                     OR EXISTS((:User {email: $email})-[:CREATED]->(o))
                 RETURN o
-                ORDER BY o.created_time DESC
+                ORDER BY o.created_at DESC
                 SKIP $offset
                 LIMIT $limit
                 """
@@ -90,14 +90,19 @@ def search_ontologies(
                 print(f"record found: {node}")
                 try:
                     ontology = Ontology(
-                        uid=node['uid'],
-                        title=node['title'],
-                        file_url=node['file_url'],
+                        uuid=node['uuid'],
+                        name=node['name'],
+                        source_url=node['source_url'],
                         description=node.get('description'),
                         node_count=node.get('node_count'),
+                        score=node.get('score'),
                         relationship_count=node.get('relationship_count'),
                         is_public=node.get('is_public', False),
-                        created_time=node.get('created_time').to_native()
+                        created_at=(
+                            node.get('created_at').to_native()
+                            if hasattr(node.get('created_at'), 'to_native')
+                            else node.get('created_at')
+                        )
                     )
                     ontologies.append(ontology)
                 except Exception as e:
@@ -117,6 +122,8 @@ def search_ontologies(
                 {'search_term': search_term},
                 result_transformer_=lambda r: r.single()['total']
             )
+
+            print(f"")
 
             response_data = {
                 'success': True,
