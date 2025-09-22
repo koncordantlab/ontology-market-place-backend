@@ -5,9 +5,17 @@ from typing import Optional
 from .model_ontology import Ontology, OntologyResponse
 from datetime import datetime
 from .n4j import get_neo4j_driver
+from .auth_utils import get_auth_headers_and_email
+from flask import Request
+from typing import Optional, Tuple, Dict, Any
 
 
-def search_ontologies(search_term: str = None, limit: int = 100, offset: int = 0) -> OntologyResponse:
+def search_ontologies(
+    search_term: str = None, 
+    limit: int = 100, 
+    offset: int = 0,
+    request: Optional[Request] = None
+) -> Tuple[Dict[str, Any], int, Dict[str, str]]:
     """
     Search for ontologies in the database.
     
@@ -15,15 +23,16 @@ def search_ontologies(search_term: str = None, limit: int = 100, offset: int = 0
         search_term: Optional term to search in title and description
         limit: Maximum number of results to return (default: 100, max: 100)
         offset: Number of results to skip for pagination (default: 0)
+        request: Optional Flask request object for authentication
         
     Returns:
         Tuple of (response_data, status_code, headers)
     """
-    # Set CORS response headers
-    headers = {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json'
-    }
+    # Get authentication headers and verify user
+    auth_result = get_auth_headers_and_email(request)
+    if len(auth_result) != 2:  # Error case
+        return auth_result
+    headers, email = auth_result  # We don't need the email for search, just the headers
 
     # Validate pagination parameters
     limit = min(max(1, limit), 100)  # Ensure limit is between 1 and 100
@@ -36,14 +45,17 @@ def search_ontologies(search_term: str = None, limit: int = 100, offset: int = 0
             if search_term:
                 query = """
                 MATCH (o:Ontology)
-                WHERE o.title CONTAINS $search_term 
-                OR o.description CONTAINS $search_term
+                WHERE (o.is_public = true OR 
+                        EXISTS((:User {email: $email})-[:CREATED]->(o)))
+                AND (o.title CONTAINS $search_term 
+                        OR o.description CONTAINS $search_term)
                 RETURN o
                 ORDER BY o.created_time DESC
                 SKIP $offset
                 LIMIT $limit
                 """
                 params = {
+                    'email': email,
                     'search_term': search_term,
                     'offset': offset,
                     'limit': limit
@@ -51,12 +63,15 @@ def search_ontologies(search_term: str = None, limit: int = 100, offset: int = 0
             else:
                 query = """
                 MATCH (o:Ontology)
+                WHERE o.is_public = true 
+                    OR EXISTS((:User {email: $email})-[:CREATED]->(o))
                 RETURN o
                 ORDER BY o.created_time DESC
                 SKIP $offset
                 LIMIT $limit
                 """
                 params = {
+                    'email': email,
                     'offset': offset,
                     'limit': limit
                 }
@@ -70,7 +85,9 @@ def search_ontologies(search_term: str = None, limit: int = 100, offset: int = 0
 
             # Process results
             ontologies = []
+            print(f"Number of records found: {len(records)}")
             for node in records:
+                print(f"record found: {node}")
                 try:
                     ontology = Ontology(
                         uid=node['uid'],
@@ -141,4 +158,10 @@ def search_ontologies_by_request(request: Request):
     limit = min(int(request.args.get('limit', 100)), 100)
     offset = max(int(request.args.get('offset', 0)), 0)
     
-    return search_ontologies(search_term, limit, offset)
+    # Pass the request object for authentication
+    return search_ontologies(
+        search_term=search_term,
+        limit=limit,
+        offset=offset,
+        request=request
+    )

@@ -1,15 +1,35 @@
-from functions_framework import http
-from flask import Request
-from typing import List
-import json
+from flask import Flask, Request, jsonify, request as flask_request
+from typing import List, Optional
 from pydantic import ValidationError
 from .model_ontology import NewOntology, Ontology, OntologyResponse
 from datetime import datetime, timezone
 from .n4j import get_neo4j_driver
+from .auth_utils import firebase_auth_required, get_authenticated_email, get_auth_headers_and_email
+from functools import wraps
+import os
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Create a Flask app instance
+app = Flask(__name__)
+
+# Enable CORS for all routes
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS, GET'
+    response.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type'
+    response.headers['Access-Control-Max-Age'] = '3600'
+    return response
 
 def add_ontologies(
-    ontology_data: list[dict], 
-    created_time_override: datetime = None
+    ontology_data: list[dict],
+    created_time_override: datetime = None,
+    email: str = None,
+    request: Optional[Request] = None,
 ) -> OntologyResponse:
     """
     Add new ontologies to the database.
@@ -18,15 +38,22 @@ def add_ontologies(
         ontology_data: List of dictionaries containing ontology data
         created_time_override: Optional datetime to use for all created_time fields.
                               If None, current time will be used.
+        email: String email of the owner of ontologies (deprecated, will be obtained from auth)
+        request: Optional Flask request object for authentication
         
     Returns:
         Tuple of (response_data, status_code, headers)
+        
+    Note:
+        The email parameter is deprecated and will be obtained from the authentication token.
+        For backward compatibility, if email is provided directly, it will be used.
     """
-    # Set CORS response headers
-    headers = {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json'
-    }
+    # Get authentication headers and verify user
+    auth_result = get_auth_headers_and_email(request, email)
+    if len(auth_result) == 2:  # Success case: (headers, email)
+        headers, email = auth_result
+    else:  # Error case: (error_response, status_code, headers)
+        return auth_result
 
     try:
         # Convert and validate input data
@@ -49,6 +76,9 @@ def add_ontologies(
             WITH onto, existing
             // Only proceed if no existing ontology with this file_url was found
             WHERE existing IS NULL
+            // Merge the User node
+            MERGE (u:User {email: $email})
+            // Create the Ontology node and relationship
             MERGE (o:Ontology {uid: onto.uid})
             ON CREATE SET 
                 o.title = onto.title,
@@ -58,7 +88,9 @@ def add_ontologies(
                 o.relationship_count = onto.relationship_count,
                 o.is_public = onto.is_public,
                 o.created_time = datetime(onto.created_time)
-            RETURN o.uid as uid, o.title as title
+            // Create the relationship if it doesn't exist
+            MERGE (u)-[:CREATED]->(o)
+            RETURN o.uid as uid, o.title as title, u.email as owner_email
         """
         
         # Convert ontologies to dict and serialize datetime
@@ -73,6 +105,7 @@ def add_ontologies(
                 result = driver.execute_query(
                     query,
                     ontologies=onto_dicts,
+                    email=email,
                     database_="neo4j",
                     result_transformer_=lambda r: [dict(record) for record in r]
                 )
@@ -112,45 +145,50 @@ def add_ontologies(
             data=None
         )
 
-# Entry point for Google Cloud Run
-@http
-def add_ontologies_by_request(request: Request):
+@app.route('/add_ontologies', methods=['POST', 'OPTIONS'])
+@firebase_auth_required
+def add_ontologies_endpoint():
     """
     HTTP Cloud Function for adding ontologies.
-    Args:
-        request (flask.Request): The request object.
-        Should contain a JSON array of ontology objects.
-    Returns:
-        JSON response with the result of the operation.
     """
-    # Set CORS headers for the preflight request
-    if request.method == 'OPTIONS':
-        headers = {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type',
-            'Access-Control-Max-Age': '3600'
-        }
-        return ('', 204, headers)
-
-    # Set CORS headers for the main request
-    headers = {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json'
-    }
+    if flask_request.method == 'OPTIONS':
+        return '', 204
 
     try:
         # Get JSON data from request
-        request_json = request.get_json(silent=True)
-        if not request_json:
-            return ('No JSON data provided', 400, headers)
+        request_data = flask_request.get_json(silent=True)
+        if not request_data or not isinstance(request_data, list):
+            return jsonify({
+                'success': False,
+                'error': 'Request body must be a JSON array of ontology objects'
+            }), 400
 
-        return add_ontologies(request_json)
+        # Call the main function with the request object
+        result = add_ontologies(
+            ontology_data=request_data,
+            request=flask_request
+        )
+        
+        # Convert OntologyResponse to JSON response
+        if isinstance(result, OntologyResponse):
+            return jsonify(result.dict()), 200
+        return jsonify(result[0]), result[1]
 
     except Exception as e:
-        print(f"Unexpected error: {str(e)}")
-        return OntologyResponse(
-            success=False,
-            message='An unexpected error occurred',
-            data=None
-        )
+        logger.error(f"Unexpected error: {str(e)}", exc_info=True)
+        error_response = {
+            'success': False,
+            'error': 'An unexpected error occurred',
+            'details': str(e)
+        }
+        return jsonify(error_response), 500
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint for Cloud Run"""
+    return jsonify({'status': 'healthy'}), 200
+
+# This is needed for local development
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port, debug=True)

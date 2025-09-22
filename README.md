@@ -13,4 +13,23 @@ uv sync
 uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+Interactive docs will then be available at http://localhost:8000/docs
 
+
+Getting Firebase Auth Token to test in docs
+```
+API_KEY="<firebase_web_api_key>"
+EMAIL="<user_email>"
+PASSWORD="<user_password>"
+
+ID_TOKEN=$(curl -s "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=$API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\",\"returnSecureToken\":true}" \
+  | jq -r '.idToken')
+
+echo "ID Token: $ID_TOKEN"
+```
+
+In the interactive docs, click on the "Authorize" button. In the dialog box, enter in the ID_TOKEN directly in the value field (do not prefix with Bearer).
+
+## Running as multiple Google Cloud Run functions

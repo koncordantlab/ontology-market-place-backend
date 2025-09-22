@@ -66,3 +66,6 @@ coverage.xml
 .settings/
 .ropeproject/
 .mypy_cache/
+
+# Notes
+references.md

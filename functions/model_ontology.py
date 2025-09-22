@@ -16,6 +16,14 @@ class NewOntology(BaseModel):
     relationship_count: int | None = None
     is_public: bool = False
 
+class UpdateOntology(BaseModel):
+    title: str | None = None
+    file_url: str | None = None
+    description: str | None = None
+    node_count: int | None = None
+    relationship_count: int | None = None
+    is_public: bool | None = None
+
 class Ontology(BaseModel):
     uid: str
     title: str
