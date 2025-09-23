@@ -102,7 +102,7 @@ def verify_firebase_token(id_token: str) -> dict:
         # Provide concise, safe error message (do not echo token)
         msg = getattr(e, 'message', None) or str(e)
         logger.warning("Firebase token verification failed: %s", msg)
-        raise ValueError(f"Authentication failed: {msg}")
+        raise ValueError(f"Authentication failed")
 
 def get_authenticated_email(request: Request) -> str:
     """
