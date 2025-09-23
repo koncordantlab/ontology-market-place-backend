@@ -7,19 +7,12 @@ from functions.add_ontologies import add_ontologies
 from functions.delete_ontologies import delete_ontologies
 from functions.update_ontology import update_ontology
 from functions.model_ontology import UpdateOntology, Ontology, NewOntology, OntologyResponse
-import firebase_admin
-from firebase_admin import auth, credentials
+from functions.auth_utils import initialize_firebase
+from firebase_admin import auth
 import os
 
-# Initialize Firebase Admin
-def get_firebase_app():
-    if not firebase_admin._apps:
-        cred = credentials.ApplicationDefault()
-        firebase_admin.initialize_app(cred)
-    return firebase_admin.get_app()
-
-# Initialize Firebase when the module loads
-firebase_app = get_firebase_app()
+# Initialize Firebase Admin using the proper credential handling
+initialize_firebase()
 
 app = FastAPI(title="Ontology Marketplace API")
 security = HTTPBearer()
