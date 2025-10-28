@@ -15,7 +15,7 @@ def search_ontologies(
     limit: int = 100, 
     offset: int = 0,
     request: Optional[Request] = None
-) -> Tuple[Dict[str, Any], int, Dict[str, str]]:
+) -> OntologyResponse:
     """
     Search for ontologies in the database.
     
@@ -28,11 +28,12 @@ def search_ontologies(
     Returns:
         Tuple of (response_data, status_code, headers)
     """
-    # Get authentication headers and verify user
-    auth_result = get_auth_headers_and_email(request)
-    if len(auth_result) != 2:  # Error case
-        return auth_result
-    headers, email = auth_result  # We don't need the email for search, just the headers
+    # If a request is provided, attempt to get auth; otherwise proceed as public.
+    email = ""
+    if request is not None:
+        auth_result = get_auth_headers_and_email(request)
+        if len(auth_result) == 2:
+            _, email = auth_result  # We don't need the headers for search
 
     # Validate pagination parameters
     limit = min(max(1, limit), 100)  # Ensure limit is between 1 and 100
@@ -59,7 +60,9 @@ def search_ontologies(
                         EXISTS((:User {email: $email})-[:CREATED]->(o)))
                 AND (o.name CONTAINS $search_term 
                         OR o.description CONTAINS $search_term)
-                RETURN o
+                OPTIONAL MATCH (o)-[:TAGGED]->(t:Tag)
+                WITH o, collect(DISTINCT toLower(t.name)) AS tags
+                RETURN o, tags
                 ORDER BY o.created_at DESC
                 SKIP $offset
                 LIMIT $limit
@@ -83,7 +86,9 @@ def search_ontologies(
                 MATCH (o:Ontology)
                 WHERE o.is_public = true 
                     OR EXISTS((:User {email: $email})-[:CREATED]->(o))
-                RETURN o
+                OPTIONAL MATCH (o)-[:TAGGED]->(t:Tag)
+                WITH o, collect(DISTINCT toLower(t.name)) AS tags
+                RETURN o, tags
                 ORDER BY o.created_at DESC
                 SKIP $offset
                 LIMIT $limit
@@ -98,13 +103,13 @@ def search_ontologies(
             records = driver.execute_query(
                 query,
                 params,
-                result_transformer_=lambda r: [record['o'] for record in r]
+                result_transformer_=lambda r: [(record['o'], record['tags']) for record in r]
             )
 
             # Process results
             ontologies = []
             print(f"Number of records found: {len(records)}")
-            for node in records:
+            for node, tags in records:
                 print(f"record found: {node}")
                 try:
                     ontology = Ontology(
@@ -123,7 +128,9 @@ def search_ontologies(
                             else node.get('created_at')
                         )
                     )
-                    ontologies.append(ontology)
+                    data = ontology.model_dump()
+                    data['tags'] = tags or []
+                    ontologies.append(data)
                 except Exception as e:
                     print(f"Error processing ontology record: {e}")
                     continue
@@ -165,9 +172,9 @@ def search_ontologies(
                 'success': True,
                 'message': 'Ontologies retrieved successfully',
                 'data': {
-                    'results': [onto.dict() for onto in ontologies],
+                    'results': ontologies,
                     'count': len(ontologies),
-'total': count_result if count_result else 0,
+                    'total': count_result if count_result else 0,
                     'offset': offset,
                     'limit': limit
                 }

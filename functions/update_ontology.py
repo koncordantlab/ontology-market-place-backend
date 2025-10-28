@@ -33,7 +33,7 @@ def update_ontology(email: str, ontology_id: str, update_data: UpdateOntology) -
             OPTIONAL MATCH (u:User {email: $email})
             WITH o, u, 
                 CASE WHEN u IS NULL THEN false 
-                    ELSE EXISTS((u)-[:CREATED|CAN_ADMIN|CAN_EDIT]->(o)) 
+                    ELSE EXISTS((u)-[:CREATED|CAN_EDIT]->(o)) 
                 END as is_authorized
             RETURN 
                 o IS NOT NULL as ontology_exists,
@@ -106,13 +106,11 @@ def update_ontology(email: str, ontology_id: str, update_data: UpdateOntology) -
                 param_name = f"new_{field}"
                 set_clauses.append(f"o.{field} = ${param_name}")
                 params[param_name] = field_type(update_dict[field])
-        
-        if not set_clauses:
-            return OntologyResponse(
-                success=False,
-                message="No valid fields to update",
-                data=None
-            )
+
+        # Normalize tags if provided
+        tags_to_set = None
+        if 'tags' in update_dict and isinstance(update_dict['tags'], list):
+            tags_to_set = sorted({(t or '').strip().lower() for t in update_dict['tags'] if isinstance(t, str) and t.strip()})
         
         # Add updated timestamp
         set_clauses.append("o.updated_time = datetime()")
@@ -121,7 +119,7 @@ def update_ontology(email: str, ontology_id: str, update_data: UpdateOntology) -
             MATCH (u:User {{email: $email}})
             MATCH (o:Ontology {{uuid: $ontology_id}})
             WITH u, o
-            WHERE EXISTS((u)-[:CREATED|CAN_ADMIN|CAN_EDIT]->(o))
+            WHERE EXISTS((u)-[:CREATED|CAN_EDIT]->(o))
             SET {', '.join(set_clauses)}
             RETURN o
         """
@@ -139,6 +137,35 @@ def update_ontology(email: str, ontology_id: str, update_data: UpdateOntology) -
                 message="No ontology found with the provided ID",
                 data=None
             )
+
+        # If tags were provided, sync TAGGED relationships
+        if tags_to_set is not None:
+            try:
+                # Remove relationships not in desired set
+                driver.execute_query(
+                    """
+                    MATCH (o:Ontology {uuid: $ontology_id})-[r:TAGGED]->(t:Tag)
+                    WHERE NOT toLower(t.name) IN $wanted
+                    DELETE r
+                    """,
+                    ontology_id=ontology_id,
+                    wanted=tags_to_set,
+                    database_="neo4j"
+                )
+                # Add relationships for desired set (and ensure Tag nodes exist)
+                driver.execute_query(
+                    """
+                    MATCH (o:Ontology {uuid: $ontology_id})
+                    UNWIND $wanted AS name
+                    MERGE (t:Tag {name: toLower(name)})
+                    MERGE (o)-[:TAGGED]->(t)
+                    """,
+                    ontology_id=ontology_id,
+                    wanted=tags_to_set,
+                    database_="neo4j"
+                )
+            except Exception as e:
+                print(f"Tag sync error: {str(e)}")
         
         # Convert the Neo4j node to an Ontology object
         created_at = result['o']['created_at']

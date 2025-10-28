@@ -7,11 +7,14 @@ from functions.search_ontologies import search_ontologies
 from functions.add_ontologies import add_ontologies
 from functions.delete_ontologies import delete_ontologies
 from functions.update_ontology import update_ontology
-from functions.model_ontology import UpdateOntology, Ontology, NewOntology, OntologyResponse
+from functions.model_ontology import UpdateOntology, Ontology, NewOntology, OntologyResponse, UploadOntology
 from functions.auth_utils import initialize_firebase
 from firebase_admin import auth
 import os
 from dotenv import load_dotenv
+from functions.model_user import can_user_edit_ontology, get_user_uuid_by_fuid, can_user_delete_ontology
+from functions.upload_ontology import upload_ontology
+from functions.tags import get_tags as get_all_tags, add_tags as create_tags
 
 # Load environment variables from .env file
 load_dotenv()
@@ -19,7 +22,14 @@ load_dotenv()
 # Initialize Firebase Admin using the proper credential handling
 initialize_firebase()
 
-app = FastAPI(title="Ontology Marketplace API")
+# Configure security for Swagger UI
+security_bearer = HTTPBearer(scheme_name="Bearer", description="Firebase ID Token")
+
+app = FastAPI(
+    title="Ontology Marketplace API",
+    description="API for managing and searching ontologies with Firebase authentication",
+    version="1.0.0"
+)
 
 # Configure CORS origins from environment variable
 cors_origins_env = os.getenv('CORS_ALLOWED_ORIGINS', '*')
@@ -38,9 +48,7 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
-security = HTTPBearer()
-
-async def get_current_user(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security)):
+async def get_current_user(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security_bearer)):
     # Development bypass (useful for local testing of endpoints without Firebase)
     if os.getenv('ALLOW_DEV_AUTH_BYPASS') == '1':
         dev_email = request.headers.get('X-Dev-Email') or os.getenv('DEV_AUTH_EMAIL')
@@ -54,17 +62,34 @@ async def get_current_user(request: Request, credentials: HTTPAuthorizationCrede
     
     try:
         token = credentials.credentials
-        print(f"Verifying token: {token[:20]}...")  # Log first 20 chars of token
+        
+        # Check if token is not empty
+        if not token or len(token) < 10:
+            raise ValueError("Token is empty or too short")
+        
+        print(f"Verifying token (length: {len(token)}, starts with: {token[:20]}...)")
         decoded_token = auth.verify_id_token(token)
-        print("Token verified successfully")
+        print(f"Token verified successfully for user: {decoded_token.get('email', 'N/A')}")
         return decoded_token
-    except Exception as e:
-        print(f"Token verification failed: {str(e)}")  # Log the actual error
+    except ValueError as ve:
+        # Re-raise ValueError exceptions (like from verify_firebase_token)
+        print(f"ValueError during token verification: {str(ve)}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Authentication failed: {str(e)}",  # Include error in response
+            detail=str(ve),
             headers={"WWW-Authenticate": "Bearer"},
         )
+    except Exception as e:
+        # Catch other exceptions (network, Firebase SDK errors, etc.)
+        error_detail = str(e)
+        print(f"Token verification failed: {error_detail}")
+        print(f"Error type: {type(e).__name__}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Authentication failed: {error_detail}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
 
 @app.options("/{path:path}")
 async def options_handler(path: str):
@@ -85,7 +110,6 @@ async def search_ontologies_endpoint(
     search_term: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
-    current_user: dict = Depends(get_current_user)
 ):
     """
     Search for ontologies based on query parameters
@@ -130,9 +154,9 @@ async def delete_ontologies_endpoint(
             data=None
         )
 
-@app.put("/update_ontology/{ontology_id}", response_model=OntologyResponse)
+@app.put("/update_ontology/{ontology_uuid}", response_model=OntologyResponse)
 async def update_ontology_endpoint(
-    ontology_id: str, 
+    ontology_uuid: str, 
     ontology: UpdateOntology,
     current_user: dict = Depends(get_current_user)
 ):
@@ -141,12 +165,107 @@ async def update_ontology_endpoint(
 
     Args:
         email: String email of the owner of ontologies
-        ontology_id: The UID of the ontology to update
+        ontology_uuid: The UUID of the ontology to update
         ontology: UpdateOntology object containing fields to update
     """
     try:
         email=current_user.get('email')
-        return update_ontology(email, ontology_id, ontology)
+        print(f"Updating ontology {ontology_uuid} for user {email} with data {ontology.model_dump()}")
+        return update_ontology(email, ontology_uuid, ontology)
+    except Exception as e:
+        return OntologyResponse(
+            success=False,
+            message=f"Failed to process request: {str(e)}",
+            data=None
+        )
+
+@app.get("/can_edit_ontology/{ontology_uuid}", response_model=OntologyResponse)
+async def can_edit_ontology_endpoint(
+    ontology_uuid: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Check if the user can edit the ontology.
+    
+    Gets the user's Firebase UID from the auth token and queries Neo4j
+    to find their User node with matching fuid, then checks if they have
+    :CREATED or :CAN_EDIT relationships with the ontology.
+    """
+    # Get the Firebase UID from the auth token
+    fuid = current_user.get('uid')
+    
+    if not fuid:
+        return OntologyResponse(
+            success=False,
+            message="User authentication failed - no UID found",
+            data=None
+        )
+    
+    # Get user UUID from Firebase UID, then check edit permissions
+    user_uuid = get_user_uuid_by_fuid(fuid)
+    
+    if not user_uuid:
+        return OntologyResponse(
+            success=False,
+            message="User not found in database",
+            data=None
+        )
+    
+    # Check if user can edit the ontology
+    result = can_user_edit_ontology(user_uuid, ontology_uuid)
+    return OntologyResponse(**result)
+    
+
+@app.get("/can_delete_ontology/{ontology_uuid}", response_model=OntologyResponse)
+async def can_delete_ontology_endpoint(
+    ontology_uuid: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Check if the user can delete the ontology.
+    """
+
+    # current_user.get('uid') is the user's Firebase uid
+    fuid = current_user.get('uid')
+    
+    if not fuid:
+        return OntologyResponse(
+            success=False,
+            message="User authentication failed - no UID found",
+            data=None
+        )
+    user_uuid = get_user_uuid_by_fuid(fuid)
+    
+    if not user_uuid:
+        return OntologyResponse(
+            success=False,
+            message="User not found in database",
+            data=None
+        )
+    
+    # Check if user can edit the ontology
+    result = can_user_delete_ontology(user_uuid, ontology_uuid)
+    return OntologyResponse(**result)
+
+@app.post("/upload_ontology", response_model=OntologyResponse)
+async def upload_ontology_endpoint(
+    request: Request,
+    ontology: UploadOntology,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Upload an ontology
+    """
+    try:
+        result = upload_ontology(
+            source=ontology.source_url,
+            ontology_uuid=None,
+            neo4j_uri=ontology.neo4j_uri,
+            neo4j_username=ontology.neo4j_username,
+            neo4j_password=ontology.neo4j_password,
+            neo4j_database=ontology.neo4j_database,
+        )
+        return OntologyResponse(success=True, message="Upload complete", data=result)
     except Exception as e:
         return OntologyResponse(
             success=False,
@@ -172,6 +291,29 @@ async def like_ontology_endpoint(
         message="Like functionality to be implemented",
         data={"ontology_id": ontology_id}
     )
+
+@app.get("/get_tags", response_model=List[str])
+async def get_tags_endpoint():
+    """
+    Retrieve all Tags as lowercase strings.
+    """
+    # Optional: allow overriding database via env if needed later
+    db = os.getenv('NEO4J_DATABASE', 'neo4j')
+    return get_all_tags(neo4j_database=db)
+
+class TagList(BaseModel):
+    tags: List[str]
+
+@app.post("/add_tags", response_model=List[str])
+async def add_tags_endpoint(
+    payload: TagList,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Create Tag nodes for the provided strings and return all tags in lowercase.
+    """
+    db = os.getenv('NEO4J_DATABASE', 'neo4j')
+    return create_tags(payload.tags, neo4j_database=db)
 
 if __name__ == "__main__":
     import uvicorn

@@ -11,32 +11,33 @@ class OntologyResponse(BaseModel):
 class NewOntology(BaseModel):
     name: str
     source_url: str
-    image_url: str | None = None # Optional thumbnail image URL for the ontology
-    description: str | None = None
-    node_count: int | None = None
-    score: float | None = None
-    relationship_count: int | None = None
+    image_url: Optional[str] = None # Optional thumbnail image URL for the ontology
+    description: Optional[str] = None
+    node_count: Optional[int] = None
+    score: Optional[float] = None
+    relationship_count: Optional[int] = None
     is_public: bool = False
 
 class UpdateOntology(BaseModel):
-    name: str | None = None
-    source_url: str | None = None
-    image_url: str | None = None # Optional thumbnail image URL for the ontology
-    description: str | None = None
-    node_count: int | None = None
-    score: float | None = None
-    relationship_count: int | None = None
-    is_public: bool | None = None
+    name: Optional[str] = None
+    source_url: Optional[str] = None
+    image_url: Optional[str] = None # Optional thumbnail image URL for the ontology
+    description: Optional[str] = None
+    node_count: Optional[int] = None
+    score: Optional[float] = None
+    relationship_count: Optional[int] = None
+    is_public: Optional[bool] = None
+    tags: Optional[List[str]] = None
 
 class Ontology(BaseModel):
     uuid: str
     name: str
     source_url: str
-    image_url: str | None = None # Optional thumbnail image URL for the ontology
-    description: str | None = None
-    node_count: int | None = None
-    score: float | None = None
-    relationship_count: int | None = None
+    image_url: Optional[str] = None # Optional thumbnail image URL for the ontology
+    description: Optional[str] = None
+    node_count: Optional[int] = None
+    score: Optional[float] = None
+    relationship_count: Optional[int] = None
     is_public: bool = False
     created_at: datetime
 
@@ -75,3 +76,10 @@ class Ontology(BaseModel):
             cls.from_new_ontology(NewOntology(**onto_data))
             for onto_data in new_ontologies
         ]
+
+class UploadOntology(BaseModel):
+    neo4j_uri: str
+    neo4j_username: str
+    neo4j_password: str
+    neo4j_database: str = "neo4j"
+    source_url: str

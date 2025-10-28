@@ -154,6 +154,8 @@ python-jose==3.5.0
     # via ontology-marketplace-backend (pyproject.toml)
 pytz==2025.2
     # via neo4j
+rdflib==7.1.2
+    # via ontology-marketplace-backend (ttl ingest)
 requests==2.32.5
     # via
     #   cachecontrol

@@ -644,6 +644,8 @@ dependencies = [
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "python-jose", extra = ["cryptography"] },
+    { name = "rdflib" },
+    { name = "rdflib-neo4j" },
     { name = "uvicorn" },
 ]
 
@@ -656,6 +658,8 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.11.4" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "python-jose", extras = ["cryptography"], specifier = ">=3.5.0" },
+    { name = "rdflib", specifier = ">=7.3.0" },
+    { name = "rdflib-neo4j", specifier = ">=1.1" },
     { name = "uvicorn", specifier = ">=0.34.2" },
 ]
 
@@ -825,6 +829,31 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f8/bf/abbd3cdfb8fbc7fb3d4d38d320f2441b1e7cbe29be4f23797b4a2b5d8aac/pytz-2025.2.tar.gz", hash = "sha256:360b9e3dbb49a209c21ad61809c7fb453643e048b38924c765813546746e81c3", size = 320884, upload-time = "2025-03-25T02:25:00.538Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/81/c4/34e93fe5f5429d7570ec1fa436f1986fb1f00c3e0f43a589fe2bbcd22c3f/pytz-2025.2-py2.py3-none-any.whl", hash = "sha256:5ddf76296dd8c44c26eb8f4b6f35488f3ccbf6fbbd7adee0b7262d43f0ec2f00", size = 509225, upload-time = "2025-03-25T02:24:58.468Z" },
+]
+
+[[package]]
+name = "rdflib"
+version = "7.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyparsing" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c8/cd/01e49acce660e7f9d161f8885004313f9973cbc5ccbcb11888c147f3fa3a/rdflib-7.3.0.tar.gz", hash = "sha256:2da6a5d3d0da2d095dd7de49e388db1c97542efc035bda4000c154d2b6cf8a6e", size = 4697755, upload-time = "2025-10-24T07:14:18.536Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/43/96/da4ade02b6ade99edba8cb8659b316b4ca2c6f7ba5942ed184853e54a97c/rdflib-7.3.0-py3-none-any.whl", hash = "sha256:501e29710f1f7f8e5a0b075483050ef512da5130d97f255bd57789424d18e643", size = 566857, upload-time = "2025-10-24T07:14:11.701Z" },
+]
+
+[[package]]
+name = "rdflib-neo4j"
+version = "1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "neo4j" },
+    { name = "rdflib" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5a/59/48dcd0adac88f528cebc82eee5faa6d7eafc35d66cb4ee46cc07eedcf9cc/rdflib_neo4j-1.1.tar.gz", hash = "sha256:423435ee44c9375da713c522e6ce4d69d80e8e7177660ac6939514a73bd14ac1", size = 17770, upload-time = "2024-08-19T13:27:34.527Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a0/a3/093d34de06174dcec25572b9256edcef076205086185e445748a9ed8a47b/rdflib_neo4j-1.1-py3-none-any.whl", hash = "sha256:2add950e278cb4d2269ff29bb070ec23824f3cd6bd6d96f8532e8ae414cba167", size = 19878, upload-time = "2024-08-19T13:27:33.632Z" },
 ]
 
 [[package]]

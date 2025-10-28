@@ -91,6 +91,8 @@ def add_ontologies(
                 o.created_at = datetime(onto.created_at)
             // Create the relationship if it doesn't exist
             MERGE (u)-[:CREATED]->(o)
+            MERGE (u)-[:CAN_EDIT]->(o)
+            MERGE (u)-[:CAN_DELETE]->(o)
             RETURN o.uuid as uuid, o.name as name, o.source_url as source_url, u.email as owner_email
         """
         
