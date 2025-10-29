@@ -1,0 +1,31 @@
+# VCS
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.pytest_cache
+.pytest_cache
+.mypy_cache
+
+# Environments
+.venv
+.env
+.env.*
+
+# OS/editor
+.DS_Store
+.vscode
+.idea
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Not needed in image
+README.md
+REFERENCES.md
