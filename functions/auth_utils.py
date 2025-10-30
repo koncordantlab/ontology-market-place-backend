@@ -32,32 +32,49 @@ def initialize_firebase():
         sa_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
         sa_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
         
-        try:
-            if sa_json:
-                # Parse stringified JSON credentials
+        if sa_json:
+            # Parse stringified JSON credentials
+            try:
                 import json
                 sa_data = json.loads(sa_json)
                 cred = credentials.Certificate(sa_data)
-            elif sa_path and os.path.exists(sa_path):
-                # Use file path credentials
+            except json.JSONDecodeError as e:
+                raise RuntimeError(
+                    f"GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON: {str(e)}. "
+                    "Please ensure it's a properly formatted JSON string."
+                )
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to initialize Firebase credentials from GOOGLE_APPLICATION_CREDENTIALS_JSON: {str(e)}"
+                )
+        elif sa_path and os.path.exists(sa_path):
+            # Use file path credentials
+            try:
                 cred = credentials.Certificate(sa_path)
-            else:
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to load Firebase credentials from {sa_path}: {str(e)}"
+                )
+        else:
+            # Try Application Default Credentials (only works on Google Cloud)
+            try:
                 cred = credentials.ApplicationDefault()
-        except Exception:
-            cred = None
+            except Exception as e:
+                # Application Default Credentials not available (common on non-GCP platforms)
+                raise RuntimeError(
+                    "Firebase credentials not found. For non-Google Cloud platforms (like Render, Railway, etc.), "
+                    "you must set GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable with your service account JSON. "
+                    f"Error: {str(e)}"
+                )
 
         options = {'projectId': project_id} if project_id else None
 
         if cred is not None:
             firebase_admin.initialize_app(cred, options)
-        elif options is not None:
-            # Initialize with options only; Firebase Admin supports credential=None
-            firebase_admin.initialize_app(options=options)
         else:
             raise RuntimeError(
-                "Firebase project ID is required. Set GOOGLE_CLOUD_PROJECT, GCP_PROJECT, or "
-                "FIREBASE_PROJECT_ID, or provide GOOGLE_APPLICATION_CREDENTIALS (file path) or "
-                "GOOGLE_APPLICATION_CREDENTIALS_JSON (stringified JSON) for service account credentials."
+                "Firebase credentials failed to initialize. Please check your GOOGLE_APPLICATION_CREDENTIALS_JSON "
+                "or GOOGLE_APPLICATION_CREDENTIALS configuration."
             )
 
         global _firebase_init_logged

@@ -209,12 +209,34 @@ Render offers free tier Docker hosting with easy deployment:
    - **Environment**: `Docker`
 
 4. **Set environment variables** in Render dashboard:
-   - `GOOGLE_PROJECT_ID`
-   - `GOOGLE_APPLICATION_CREDENTIALS_JSON`
-   - `CORS_ALLOWED_ORIGINS` (optional)
+   - `GOOGLE_PROJECT_ID`: Your Firebase project ID
+   - `GOOGLE_APPLICATION_CREDENTIALS_JSON`: **Important** - This must be a stringified JSON of your Firebase service account credentials. To get this:
+     
+     ```bash
+     # Option 1: If you have the service account JSON file
+     cat path/to/service-account-key.json | jq -c .
+     
+     # Option 2: Copy the entire JSON file content and minify it (remove all newlines/whitespace)
+     # The entire JSON object should be on one line in the Render environment variable
+     ```
+     
+     **Common mistake**: Don't set individual fields - paste the entire JSON object as a single-line string.
+     
+     Example format (all on one line):
+     ```
+     {"type":"service_account","project_id":"your-project-id","private_key_id":"...","private_key":"-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n","client_email":"...","client_id":"...","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs","client_x509_cert_url":"..."}
+     ```
+   
+   - `CORS_ALLOWED_ORIGINS` (optional): Comma-separated origins, e.g., `https://yourdomain.com,https://www.yourdomain.com`
    - `PORT` (optional - Render sets this automatically)
 
 5. **Deploy**: Render will build and deploy automatically on git push
+
+**Troubleshooting**: If you get `DefaultCredentialsError`, ensure `GOOGLE_APPLICATION_CREDENTIALS_JSON` is set correctly:
+- The value must be a valid JSON object (all on one line)
+- Copy the entire JSON from your Firebase service account key file
+- Make sure there are no extra quotes or escaping issues
+- Verify `GOOGLE_PROJECT_ID` matches the project in your credentials
 
 **Benefits**: Free tier available, automatic deployments, built-in SSL
 
