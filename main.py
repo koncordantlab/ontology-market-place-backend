@@ -133,7 +133,12 @@ async def add_ontologies_endpoint(
     """
     try:
         ontology_dicts = [onto.model_dump() for onto in ontologies]
-        return add_ontologies(ontology_dicts, email=current_user.get('email'), request=request)
+        return add_ontologies(
+            ontology_dicts,
+            email=current_user.get('email'),
+            fuid=current_user.get('uid'),
+            request=request
+        )
     except Exception as e:
         return {"success": False, "error": str(e)}, 500
 
@@ -151,8 +156,8 @@ async def delete_ontologies_endpoint(
         ontology_ids: List of ontology uuids to delete
     """
     try:
-        email=current_user.get('email')
-        return delete_ontologies(email, ontology_ids)
+        fuid=current_user.get('uid')
+        return delete_ontologies(fuid, ontology_ids)
     except Exception as e:
         return OntologyResponse(
             success=False,
@@ -175,9 +180,9 @@ async def update_ontology_endpoint(
         ontology: UpdateOntology object containing fields to update
     """
     try:
-        email=current_user.get('email')
-        print(f"Updating ontology {ontology_uuid} for user {email} with data {ontology.model_dump()}")
-        return update_ontology(email, ontology_uuid, ontology)
+        fuid=current_user.get('uid')
+        print(f"Updating ontology {ontology_uuid} for uid {fuid} with data {ontology.model_dump()}")
+        return update_ontology(fuid, ontology_uuid, ontology)
     except Exception as e:
         return OntologyResponse(
             success=False,

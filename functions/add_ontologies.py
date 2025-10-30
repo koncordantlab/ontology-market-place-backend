@@ -4,7 +4,7 @@ from pydantic import ValidationError
 from .model_ontology import NewOntology, Ontology, OntologyResponse
 from datetime import datetime, timezone
 from .n4j import get_neo4j_driver
-from .auth_utils import firebase_auth_required, get_authenticated_email, get_auth_headers_and_email
+from .auth_utils import firebase_auth_required, get_authenticated_email, get_auth_headers_and_email, verify_firebase_token
 from functools import wraps
 import os
 import logging
@@ -29,6 +29,7 @@ def add_ontologies(
     ontology_data: list[dict],
     created_at_override: datetime = None,
     email: str = None,
+    fuid: str = None,
     request: Optional[Request] = None,
 ) -> OntologyResponse:
     """
@@ -38,7 +39,8 @@ def add_ontologies(
         ontology_data: List of dictionaries containing ontology data
         created_at_override: Optional datetime to use for all created_at fields.
                               If None, current time will be used.
-        email: String email of the owner of ontologies (deprecated, will be obtained from auth)
+        email: Optional email of the owner (metadata only; deprecated)
+        fuid: Firebase UID of the owner (preferred identifier)
         request: Optional Flask request object for authentication
         
     Returns:
@@ -48,12 +50,20 @@ def add_ontologies(
         The email parameter is deprecated and will be obtained from the authentication token.
         For backward compatibility, if email is provided directly, it will be used.
     """
-    # Get authentication headers and verify user
+    # Get authentication headers and verify (email for CORS/legacy), prefer provided fuid for identity
     auth_result = get_auth_headers_and_email(request, email)
     if len(auth_result) == 2:  # Success case: (headers, email)
         headers, email = auth_result
     else:  # Error case: (error_response, status_code, headers)
         return auth_result
+
+    # Require fuid for user identity; email is optional metadata
+    if not fuid:
+        return OntologyResponse(
+            success=False,
+            message='Missing Firebase UID (fuid).',
+            data=None
+        )
 
     try:
         # Convert and validate input data
@@ -71,14 +81,15 @@ def add_ontologies(
         # Prepare and execute the query
         query = """
             UNWIND $ontologies AS onto
-            // First ensure the user exists, then check if an ontology with this source_url already exists for this user email
-            MERGE (u:User {email: $email})
+            // Ensure the user exists by Firebase UID; attach email metadata if provided
+            MERGE (u:User {fuid: $fuid})
+            ON CREATE SET u.created_at = datetime()
+            SET u.email = coalesce($email, u.email),
+                u.uuid = coalesce(u.uuid, randomUUID())
             WITH onto, u
             OPTIONAL MATCH (u)-[:CREATED]->(existing:Ontology {source_url: onto.source_url})
             WITH onto, existing, u
-            // Only proceed if no existing ontology with this source_url was found for this user
             WHERE existing IS NULL
-            // Create the Ontology node and relationship
             MERGE (o:Ontology {uuid: onto.uuid})
             ON CREATE SET 
                 o.name = onto.name,
@@ -89,11 +100,10 @@ def add_ontologies(
                 o.relationship_count = onto.relationship_count,
                 o.is_public = onto.is_public,
                 o.created_at = datetime(onto.created_at)
-            // Create the relationship if it doesn't exist
             MERGE (u)-[:CREATED]->(o)
             MERGE (u)-[:CAN_EDIT]->(o)
             MERGE (u)-[:CAN_DELETE]->(o)
-            RETURN o.uuid as uuid, o.name as name, o.source_url as source_url, u.email as owner_email
+            RETURN o.uuid as uuid, o.name as name, o.source_url as source_url, u.fuid as owner_fuid, u.email as owner_email
         """
         
         # Convert ontologies to dict and serialize datetime
@@ -112,6 +122,7 @@ def add_ontologies(
                 result = driver.execute_query(
                     query,
                     ontologies=onto_dicts,
+                    fuid=fuid,
                     email=email,
                     database_="neo4j",
                     result_transformer_=lambda r: [dict(record) for record in r]
@@ -177,9 +188,22 @@ def add_ontologies_endpoint():
                 'error': 'Request body must be a JSON array of ontology objects'
             }), 400
 
-        # Call the main function with the request object
+        # Extract Firebase UID (fuid) from Authorization header if present
+        fuid = None
+        email = None
+        auth_header = flask_request.headers.get('Authorization')
+        if auth_header:
+            parts = auth_header.split()
+            if len(parts) == 2 and parts[0].lower() == 'bearer':
+                decoded = verify_firebase_token(parts[1])
+                fuid = decoded.get('uid')
+                email = decoded.get('email')
+
+        # Call the main function with the request object and identity
         result = add_ontologies(
             ontology_data=request_data,
+            email=email,
+            fuid=fuid,
             request=flask_request
         )
         

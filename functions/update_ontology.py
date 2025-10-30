@@ -1,16 +1,17 @@
 from functions_framework import http
 from flask import Request
 from typing import Dict, Any
+from .auth_utils import verify_firebase_token
 from datetime import datetime
 from .model_ontology import UpdateOntology,Ontology, OntologyResponse
 from .n4j import get_neo4j_driver
 
-def update_ontology(email: str, ontology_id: str, update_data: UpdateOntology) -> OntologyResponse:
+def update_ontology(fuid: str, ontology_id: str, update_data: UpdateOntology) -> OntologyResponse:
     """
     Update an existing ontology in the database.
     
     Args:
-        email: String email of the owner or editor of ontologies
+        fuid: Firebase UID of the owner or editor of ontologies
         ontology_id: The uuid of the ontology to update
         update_data: Dictionary containing fields to update
         
@@ -30,7 +31,7 @@ def update_ontology(email: str, ontology_id: str, update_data: UpdateOntology) -
         # First, check if the user is authorized to update this ontology
         auth_check_query = """
             MATCH (o:Ontology {uuid: $ontology_id})
-            OPTIONAL MATCH (u:User {email: $email})
+            OPTIONAL MATCH (u:User {fuid: $fuid})
             WITH o, u, 
                 CASE WHEN u IS NULL THEN false 
                     ELSE EXISTS((u)-[:CREATED|CAN_EDIT]->(o)) 
@@ -42,7 +43,7 @@ def update_ontology(email: str, ontology_id: str, update_data: UpdateOntology) -
         
         is_authorized = driver.execute_query(
             auth_check_query,
-            email=email,
+            fuid=fuid,
             ontology_id=ontology_id,
             database_="neo4j",
             result_transformer_=lambda r: r.single()
@@ -65,7 +66,7 @@ def update_ontology(email: str, ontology_id: str, update_data: UpdateOntology) -
         # Prepare the SET clause for the update
         set_clauses = []
         params = {
-            'email': email,
+            'fuid': fuid,
             'ontology_id': ontology_id
         }
     
@@ -83,7 +84,7 @@ def update_ontology(email: str, ontology_id: str, update_data: UpdateOntology) -
         # Prepare the SET clause for the update
         set_clauses = []
         params = {
-            'email': email,
+            'fuid': fuid,
             'ontology_id': ontology_id
         }
         
@@ -116,7 +117,7 @@ def update_ontology(email: str, ontology_id: str, update_data: UpdateOntology) -
         set_clauses.append("o.updated_time = datetime()")
         
         query = f"""
-            MATCH (u:User {{email: $email}})
+            MATCH (u:User {{fuid: $fuid}})
             MATCH (o:Ontology {{uuid: $ontology_id}})
             WITH u, o
             WHERE EXISTS((u)-[:CREATED|CAN_EDIT]->(o))
@@ -245,8 +246,35 @@ def update_ontology_by_request(request: Request):
                 message="No ontology ID provided in URL",
                 data=None
             )
-            
-        return update_ontology(ontology_id, request_json)
+
+        # Decode Firebase token to get fuid
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or len(auth_header.split()) != 2 or auth_header.split()[0].lower() != 'bearer':
+            return OntologyResponse(
+                success=False,
+                message="Missing or invalid Authorization header",
+                data=None
+            )
+        decoded = verify_firebase_token(auth_header.split()[1])
+        fuid = decoded.get('uid')
+        if not fuid:
+            return OntologyResponse(
+                success=False,
+                message="Invalid token: no uid",
+                data=None
+            )
+
+        # Build UpdateOntology model
+        try:
+            update_model = UpdateOntology(**request_json)
+        except Exception:
+            return OntologyResponse(
+                success=False,
+                message="Invalid update payload",
+                data=None
+            )
+
+        return update_ontology(fuid, ontology_id, update_model)
 
     except Exception as e:
         print(f"Unexpected error: {str(e)}")

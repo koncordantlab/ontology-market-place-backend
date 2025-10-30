@@ -1,15 +1,16 @@
 from functions_framework import http
 from flask import Request
 from typing import List
+from .auth_utils import verify_firebase_token
 from .model_ontology import OntologyResponse
 from .n4j import get_neo4j_driver
 
-def delete_ontologies(email: str, ontology_ids: List[str]) -> OntologyResponse:
+def delete_ontologies(fuid: str, ontology_ids: List[str]) -> OntologyResponse:
     """
     Delete ontologies from the database.
     
     Args:
-        email: String email of the owner/admin/editor of ontologies
+        fuid: Firebase UID of the user performing the deletion
         ontology_ids: List of ontology uuids to delete
         
     Returns:
@@ -29,7 +30,7 @@ def delete_ontologies(email: str, ontology_ids: List[str]) -> OntologyResponse:
         query = """
             UNWIND $ontology_ids AS ontology_id
             MATCH (o:Ontology {uuid: ontology_id})
-            MATCH (u:User {email: $email})
+            MATCH (u:User {fuid: $fuid})
             WHERE EXISTS((u)-[:CREATED|CAN_DELETE]->(o))
             WITH o, u
             DETACH DELETE o
@@ -38,7 +39,7 @@ def delete_ontologies(email: str, ontology_ids: List[str]) -> OntologyResponse:
         
         result = driver.execute_query(
             query,
-            email=email,
+            fuid=fuid,
             ontology_ids=ontology_ids,
             result_transformer_=lambda r: r.single()["deleted_count"]
         )
@@ -109,8 +110,25 @@ def delete_ontologies_by_request(request: Request):
                 message="Expected an array of ontology IDs",
                 data=None
             )
-            
-        return delete_ontologies(request_json)
+
+        # Decode Firebase token to get fuid
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or len(auth_header.split()) != 2 or auth_header.split()[0].lower() != 'bearer':
+            return OntologyResponse(
+                success=False,
+                message="Missing or invalid Authorization header",
+                data=None
+            )
+        decoded = verify_firebase_token(auth_header.split()[1])
+        fuid = decoded.get('uid')
+        if not fuid:
+            return OntologyResponse(
+                success=False,
+                message="Invalid token: no uid",
+                data=None
+            )
+
+        return delete_ontologies(fuid, request_json)
 
     except Exception as e:
         print(f"Unexpected error: {str(e)}")

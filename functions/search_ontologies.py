@@ -5,7 +5,7 @@ from typing import Optional
 from .model_ontology import Ontology, OntologyResponse
 from datetime import datetime
 from .n4j import get_neo4j_driver
-from .auth_utils import get_auth_headers_and_email
+from .auth_utils import get_auth_headers_and_email, verify_firebase_token
 from flask import Request
 from typing import Optional, Tuple, Dict, Any
 
@@ -28,12 +28,22 @@ def search_ontologies(
     Returns:
         Tuple of (response_data, status_code, headers)
     """
-    # If a request is provided, attempt to get auth; otherwise proceed as public.
-    email = ""
+    # If a request is provided, attempt to decode token for fuid; otherwise proceed as public.
+    fuid = None
     if request is not None:
-        auth_result = get_auth_headers_and_email(request)
-        if len(auth_result) == 2:
-            _, email = auth_result  # We don't need the headers for search
+        try:
+            auth_header = None
+            if hasattr(request, 'headers') and isinstance(request.headers, dict):
+                auth_header = request.headers.get('Authorization')
+            elif hasattr(request, 'headers') and hasattr(request.headers, 'get'):
+                auth_header = request.headers.get('Authorization')
+            if auth_header:
+                parts = auth_header.split()
+                if len(parts) == 2 and parts[0].lower() == 'bearer':
+                    decoded = verify_firebase_token(parts[1])
+                    fuid = decoded.get('uid')
+        except Exception:
+            fuid = None
 
     # Validate pagination parameters
     limit = min(max(1, limit), 100)  # Ensure limit is between 1 and 100
@@ -57,7 +67,7 @@ def search_ontologies(
                 query = """
                 MATCH (o:Ontology)
                 WHERE (o.is_public = true OR 
-                        EXISTS((:User {email: $email})-[:CREATED]->(o)))
+                        EXISTS((:User {fuid: $fuid})-[:CREATED|:CAN_EDIT|:CAN_DELETE]->(o)))
                 AND (o.name CONTAINS $search_term 
                         OR o.description CONTAINS $search_term)
                 OPTIONAL MATCH (o)-[:TAGGED]->(t:Tag)
@@ -68,7 +78,7 @@ def search_ontologies(
                 LIMIT $limit
                 """
                 params = {
-                    'email': email,
+                    'fuid': fuid,
                     'search_term': search_term,
                     'offset': offset,
                     'limit': limit
@@ -85,7 +95,7 @@ def search_ontologies(
                 query = """
                 MATCH (o:Ontology)
                 WHERE o.is_public = true 
-                    OR EXISTS((:User {email: $email})-[:CREATED]->(o))
+                    OR EXISTS((:User {fuid: $fuid})-[:CREATED|:CAN_EDIT|:CAN_DELETE]->(o))
                 OPTIONAL MATCH (o)-[:TAGGED]->(t:Tag)
                 WITH o, collect(DISTINCT toLower(t.name)) AS tags
                 RETURN o, tags
@@ -94,7 +104,7 @@ def search_ontologies(
                 LIMIT $limit
                 """
                 params = {
-                    'email': email,
+                    'fuid': fuid,
                     'offset': offset,
                     'limit': limit
                 }
@@ -140,24 +150,24 @@ def search_ontologies(
                 count_query = """
                 MATCH (o:Ontology)
                 WHERE (o.is_public = true OR 
-                        EXISTS((:User {email: $email})-[:CREATED]->(o)))
+                        EXISTS((:User {fuid: $fuid})-[:CREATED|:CAN_EDIT|:CAN_DELETE]->(o)))
                 AND (o.name CONTAINS $search_term 
                         OR o.description CONTAINS $search_term)
                 RETURN count(o) as total
                 """
                 count_params = {
-                    'email': email,
+                    'fuid': fuid,
                     'search_term': search_term
                 }
             else:
                 count_query = """
                 MATCH (o:Ontology)
                 WHERE o.is_public = true 
-                    OR EXISTS((:User {email: $email})-[:CREATED]->(o))
+                    OR EXISTS((:User {fuid: $fuid})-[:CREATED|:CAN_EDIT|:CAN_DELETE]->(o))
                 RETURN count(o) as total
                 """
                 count_params = {
-                    'email': email
+                    'fuid': fuid
                 }
             
             count_result = driver.execute_query(

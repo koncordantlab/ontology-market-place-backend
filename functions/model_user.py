@@ -4,57 +4,6 @@ from pydantic import Field
 from typing import List, Optional
 from .n4j import get_neo4j_driver
 
-# class User(BaseModel):
-#     name: str | None = None
-#     email: str | None = None
-#     email_verified: bool
-#     fuid : str
-#     uuid: str = Field(default_factory=lambda: str(uuid.uuid4()))
-#     image_url: str | None = None
-#     is_public: bool = False
-#     is_admin: bool = False
-#     created_at: datetime
-#     updated_at: datetime
-
-#     def get_edit_ontology_uuids(self) -> List[str]:
-#         """
-#         Returns a list of ontology UUIDs that the user can edit.
-#         Authorization is determined by checking Neo4j for Ontology nodes 
-#         connected via :CREATED and/or :CAN_EDIT relationships.
-        
-#         Returns:
-#             List[str]: List of ontology UUIDs the user can edit
-#         """
-#         if not self.email:
-#             return []
-        
-#         from .n4j import get_neo4j_driver
-        
-#         query = """
-#             MATCH (u:User {uuid: $uuid})
-#             MATCH (u)-[:CREATED|CAN_EDIT]->(o:Ontology)
-#             RETURN DISTINCT o.uuid as uuid
-#         """
-        
-#         try:
-#             with get_neo4j_driver() as driver:
-#                 result = driver.execute_query(
-#                     query,
-#                     uuid=self.uuid,
-#                     database_="neo4j",
-#                     result_transformer_=lambda r: [record['uuid'] for record in r]
-#                 )
-#                 return result
-#         except Exception as e:
-#             print(f"Error querying edit ontology UUIDs: {str(e)}")
-#             return []
-
-
-#     def can_edit_ontology(self, ontology_id: str, email: str) -> bool:
-#         """
-#         Check if the user can edit the ontology
-#         """
-#         return ontology_id in self.get_edit_ontology_uuids()
 
 def get_user_uuid_by_fuid(fuid: str) -> Optional[str]:
     """
@@ -322,6 +271,7 @@ def update_user_is_public_by_fuid(fuid: str, is_public: bool) -> bool:
             driver.execute_query(
                 """
                 MERGE (u:User {fuid: $fuid})
+                ON CREATE SET u.created_at = datetime(), u.uuid = randomUUID()
                 SET u.is_public = $is_public
                 RETURN u
                 """,
