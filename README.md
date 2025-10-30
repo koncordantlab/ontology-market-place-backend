@@ -112,3 +112,129 @@ For local frontend testing without Firebase authentication, you can enable a dev
 Alternatively, if you set `DEV_AUTH_EMAIL` in the `.env` file, you don't need to include the header - the backend will automatically use that email.
 
 **Note**: This bypass should NEVER be enabled in production!
+
+## Deployment
+
+### Recommended Hosting Services
+
+This FastAPI app can be deployed to container-based hosting platforms. Here are three recommended options:
+
+#### 1. **Google Cloud Run** (Recommended - Best for Firebase integration)
+
+Since you're already using Firebase/Google Cloud services, Cloud Run offers seamless integration:
+
+1. **Install gcloud CLI** (if not already installed):
+   ```bash
+   # macOS
+   brew install google-cloud-sdk
+   
+   # Or download from: https://cloud.google.com/sdk/docs/install
+   ```
+
+2. **Authenticate and set project**:
+   ```bash
+   gcloud auth login
+   gcloud config set project YOUR_PROJECT_ID
+   ```
+
+3. **Build and deploy**:
+   ```bash
+   # Build the container image
+   gcloud builds submit --tag gcr.io/YOUR_PROJECT_ID/ontology-marketplace-backend
+   
+   # Deploy to Cloud Run
+   gcloud run deploy ontology-marketplace-backend \
+     --image gcr.io/YOUR_PROJECT_ID/ontology-marketplace-backend \
+     --platform managed \
+     --region us-central1 \
+     --allow-unauthenticated \
+     --set-env-vars "GOOGLE_PROJECT_ID=YOUR_PROJECT_ID,GOOGLE_APPLICATION_CREDENTIALS_JSON=$(cat path/to/credentials.json | jq -c .)"
+   ```
+
+   **Note**: For `GOOGLE_APPLICATION_CREDENTIALS_JSON`, you can also set it in the Cloud Run console under "Variables & Secrets".
+
+4. **Set CORS origins** (if needed):
+   ```bash
+   gcloud run services update ontology-marketplace-backend \
+     --set-env-vars "CORS_ALLOWED_ORIGINS=https://yourdomain.com"
+   ```
+
+**Benefits**: Pay-per-request pricing, auto-scaling, integrated with Firebase/Google Cloud services
+
+---
+
+#### 2. **Railway** (Easiest Docker deployment)
+
+Railway offers simple Docker-based deployment with a great developer experience:
+
+1. **Sign up** at [railway.app](https://railway.app)
+
+2. **Connect your GitHub repository** or deploy from CLI:
+   ```bash
+   # Install Railway CLI
+   npm i -g @railway/cli
+   
+   # Login and initialize
+   railway login
+   railway init
+   ```
+
+3. **Set environment variables** in Railway dashboard:
+   - `GOOGLE_PROJECT_ID`
+   - `GOOGLE_APPLICATION_CREDENTIALS_JSON` (paste full JSON string)
+   - `CORS_ALLOWED_ORIGINS` (optional)
+
+4. **Deploy**:
+   ```bash
+   railway up
+   ```
+
+Railway will automatically detect the Dockerfile and deploy. It provides a URL like `https://your-app.up.railway.app`
+
+**Benefits**: Simple setup, automatic HTTPS, integrated monitoring, $5/month starter plan
+
+---
+
+#### 3. **Render** (Good free tier option)
+
+Render offers free tier Docker hosting with easy deployment:
+
+1. **Sign up** at [render.com](https://render.com)
+
+2. **Create a new Web Service** and connect your GitHub repository
+
+3. **Configure**:
+   - **Build Command**: (leave empty, Render builds from Dockerfile)
+   - **Start Command**: (leave empty, uses Dockerfile CMD)
+   - **Environment**: `Docker`
+
+4. **Set environment variables** in Render dashboard:
+   - `GOOGLE_PROJECT_ID`
+   - `GOOGLE_APPLICATION_CREDENTIALS_JSON`
+   - `CORS_ALLOWED_ORIGINS` (optional)
+   - `PORT` (optional - Render sets this automatically)
+
+5. **Deploy**: Render will build and deploy automatically on git push
+
+**Benefits**: Free tier available, automatic deployments, built-in SSL
+
+---
+
+### Local Docker Testing
+
+Before deploying, test the Docker image locally:
+
+```bash
+# Build the image
+docker build -t ontology-marketplace-backend:latest .
+
+# Run locally
+docker run --rm -p 8080:8080 \
+  -e PORT=8080 \
+  -e GOOGLE_PROJECT_ID="$GOOGLE_PROJECT_ID" \
+  -e GOOGLE_APPLICATION_CREDENTIALS_JSON="$GOOGLE_APPLICATION_CREDENTIALS_JSON" \
+  -e CORS_ALLOWED_ORIGINS="http://localhost:3000" \
+  ontology-marketplace-backend:latest
+```
+
+The API will be available at `http://localhost:8080/docs`
